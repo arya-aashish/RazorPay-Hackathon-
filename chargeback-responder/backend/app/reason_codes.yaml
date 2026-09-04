@@ -1,0 +1,19 @@
+# Map Razorpay reason codes to required evidence tools
+product_not_received:
+  required_evidence:
+    - shipping_proof
+    - delivery_confirmation
+duplicate_processing:
+  required_evidence:
+    - customer_comms
+    - refund_policy
+fraudulent:
+  required_evidence:
+    - crm_logs
+    - delivery_confirmation
+not_as_described:
+  # e.g. "wrong color", "wrong item", "item doesn't match listing"
+  required_evidence:
+    - visual_evidence_comparison
+    - customer_comms
+    - delivery_confirmation

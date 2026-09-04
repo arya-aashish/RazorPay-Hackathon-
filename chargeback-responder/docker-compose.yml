@@ -1,0 +1,67 @@
+services:
+  backend:
+    build: ./backend
+    container_name: responder-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      # Configure one or more non-demo tokens in .env. Multiple tokens may be
+      # provided as a comma-separated MERCHANT_API_TOKENS value.
+      - MERCHANT_API_TOKEN=${MERCHANT_API_TOKEN}
+      - MERCHANT_API_TOKENS=${MERCHANT_API_TOKENS:-}
+      - CUSTOMER_TOKEN_TTL_HOURS=${CUSTOMER_TOKEN_TTL_HOURS:-24}
+      - EVIDENCE_ENCRYPTION_KEY=${EVIDENCE_ENCRYPTION_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Optional ordered, comma-separated failover credentials. Example:
+      # GEMINI_API_KEYS=primary_key,secondary_key,tertiary_key
+      - GEMINI_API_KEYS=${GEMINI_API_KEYS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: unless-stopped
+    command:
+      - "http"
+      - "backend:8000" # Replace 'fastapi_app' with your actual backend service name
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    ports:
+      - "4040:4040" # Exposes the ngrok web interface locally
+    depends_on:
+      - backend # Ensure this matches your backend service name
+
+  frontend:
+    build: ./frontend
+    container_name: responder-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+  db:
+    image: postgres:15-alpine
+    container_name: responder-db
+    env_file:
+      - .env  # Pass the env file to Postgres so it uses our dynamic credentials
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

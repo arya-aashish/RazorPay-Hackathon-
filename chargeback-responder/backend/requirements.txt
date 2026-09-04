@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+sqlalchemy
+python-dotenv
+crewai[google-genai]
+google-generativeai
+httpx
+tenacity
+apscheduler
+psycopg2-binary
+pyyaml
+cryptography

@@ -1,0 +1,130 @@
+:root {
+  /* ---- Surfaces ---- */
+  --bg: #f7f7f4;
+  --bg-card: #ffffff;
+  --bg-inset: #f1f0ec;
+  --bg-hover: #f4f3ef;
+
+  /* ---- Borders ---- */
+  --border: #e3e1da;
+  --border-strong: #d5d2c8;
+
+  /* ---- Text ---- */
+  --text: #2b2a26;
+  --text-dim: #78766d;
+  --text-h: #17160f;
+
+  /* ---- Brand accent (deep pine) ---- */
+  --accent: #146356;
+  --accent-soft: rgba(20, 99, 86, 0.08);
+  --accent-strong: #0f4c42;
+
+  /* ---- Status ---- */
+  --ok: #1e8e5a;
+  --ok-soft: rgba(30, 142, 90, 0.08);
+  --danger: #d1453d;
+  --danger-soft: rgba(209, 69, 61, 0.08);
+  --warn: #b4740e;
+  --warn-soft: rgba(180, 116, 14, 0.09);
+  --neutral: #8a887f;
+  --neutral-soft: rgba(138, 136, 127, 0.09);
+
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px rgba(23, 22, 15, 0.04), 0 1px 1px rgba(23, 22, 15, 0.03);
+  --shadow-md: 0 4px 14px rgba(23, 22, 15, 0.06), 0 1px 2px rgba(23, 22, 15, 0.04);
+  --shadow-lg: 0 12px 28px rgba(23, 22, 15, 0.09), 0 2px 6px rgba(23, 22, 15, 0.04);
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+
+  /* ---- Type ---- */
+  --sans: "Manrope", "Segoe UI", -apple-system, Helvetica, Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  color-scheme: light;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 var(--sans);
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--sans);
+  color: var(--text-h);
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: var(--accent);
+}
+
+button {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+code,
+.mono {
+  font-family: var(--mono);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
