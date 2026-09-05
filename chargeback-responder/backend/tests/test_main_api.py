@@ -81,6 +81,11 @@ def client(monkeypatch):
     )
     monkeypatch.setattr(
         main_module.razorpay_client,
+        "upload_evidence_document",
+        lambda **k: {"uploaded": True, "document_id": "doc_test_1", "detail": ""},
+    )
+    monkeypatch.setattr(
+        main_module.razorpay_client,
         "contest_dispute",
         lambda **k: {"submitted": True, "detail": "ok", "status_code": 200},
     )
@@ -241,6 +246,51 @@ def test_full_pay_then_claim_then_duplicate_claim_rejected(client):
         headers=_auth_headers(alice),
     )
     assert dup_resp.status_code == 409
+
+
+def test_order_color_is_persisted_and_passed_to_claim_analysis(client, monkeypatch):
+    captured = {}
+
+    def _claim_pipeline(*args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "action": "flag_for_review",
+            "reasoning": "stubbed for test",
+            "evidence_summary": "stubbed for test",
+            "requires_human_review": True,
+        }
+
+    monkeypatch.setattr(main_module, "process_refund_claim", _claim_pipeline)
+    alice = _signup(client, "color-order@example.com")
+    headers = _auth_headers(alice)
+    order_resp = client.post(
+        "/orders", json={"amount": 49900, "product_color": "Navy blue"}, headers=headers
+    )
+    assert order_resp.status_code == 200
+    order_id = order_resp.json()["order_id"]
+    assert order_resp.json()["product_color"] == "Navy blue"
+
+    listed = client.get("/orders", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json()[0]["product_color"] == "Navy blue"
+
+    verify_resp = client.post(
+        f"/orders/{order_id}/verify-payment",
+        json={
+            "razorpay_order_id": order_id,
+            "razorpay_payment_id": "pay_color_1",
+            "razorpay_signature": "test-signature",
+        },
+        headers=headers,
+    )
+    assert verify_resp.status_code == 200
+    claim_resp = client.post(
+        "/disputes/claim",
+        json={"order_id": order_id, "reason_code": "not_as_described", "claim_details": "wrong color"},
+        headers=headers,
+    )
+    assert claim_resp.status_code == 200
+    assert captured["ordered_product_color"] == "Navy blue"
 
 
 def test_verify_payment_rejects_mismatched_order_id(client):

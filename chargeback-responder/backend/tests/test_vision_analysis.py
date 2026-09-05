@@ -95,6 +95,28 @@ def test_prompt_delimits_customer_instructions_as_untrusted_data(monkeypatch):
     assert json.dumps(injection) in captured["prompt"]
 
 
+def test_prompt_includes_order_time_color_for_wrong_color_comparison(monkeypatch):
+    _patch_downloads_ok(monkeypatch)
+    captured = {}
+
+    class _CaptureModel:
+        def generate_content(self, parts, **kwargs):
+            captured["prompt"] = parts[0]
+            return _FakeGeminiResponse(json.dumps({"claim_supported": "yes", "overall_confidence": 0.9}))
+
+    monkeypatch.setattr(vision_analysis.genai, "GenerativeModel", lambda _: _CaptureModel())
+    vision_analysis.analyze_evidence_images(
+        customer_image_url="https://example.com/photo.jpg",
+        reference_image_url=None,
+        reason_code="not_as_described",
+        claim_details="wrong color received",
+        ordered_product_color="Navy blue",
+    )
+
+    assert '"ordered_product_color": "Navy blue"' in captured["prompt"]
+    assert "compare the visible item to that color" in captured["prompt"]
+
+
 def test_download_failure_forces_human_review(monkeypatch):
     def _boom(url):
         raise ConnectionError("could not resolve host")

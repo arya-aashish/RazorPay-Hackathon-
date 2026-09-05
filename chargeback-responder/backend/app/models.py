@@ -54,6 +54,10 @@ class Order(Base):
     user_id = Column(String, index=True, nullable=False)  # owner - FK to User.id (no ORM relationship, kept simple)
     amount = Column(Integer, nullable=False)  # smallest currency unit (e.g. paise for INR)
     currency = Column(String, default="INR")
+    # Chosen when the order is created.  This is intentionally stored on the
+    # order (rather than the later claim) so image analysis compares against
+    # what was ordered, not a color a claimant supplies after delivery.
+    product_color = Column(String, nullable=True)
     receipt = Column(String, nullable=True)
     status = Column(String, default="created")  # created, paid, claimed
     razorpay_payment_id = Column(String, nullable=True)

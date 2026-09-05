@@ -10,11 +10,14 @@ const REASON_CODES = [
   { value: "other", label: "Other" },
 ];
 
+const PRODUCT_COLORS = ["Black", "White", "Red", "Blue", "Navy blue", "Green", "Yellow", "Pink", "Purple", "Brown", "Grey"];
+
 export default function CustomerPortal() {
   const [apiToken, setApiToken] = useState(() => localStorage.getItem("customer_api_token") || "");
   const [email, setEmail] = useState("");
   const [orders, setOrders] = useState([]);
   const [amount, setAmount] = useState("499.00");
+  const [productColor, setProductColor] = useState(PRODUCT_COLORS[0]);
   const [message, setMessage] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -81,7 +84,7 @@ export default function CustomerPortal() {
     setMessage(null);
     try {
       const paise = Math.round(parseFloat(amount) * 100);
-      const order = await createOrder(apiToken, paise);
+      const order = await createOrder(apiToken, paise, "INR", productColor);
       const rzpResponse = await openRazorpayCheckout({
         orderId: order.order_id,
         amount: paise,
@@ -90,7 +93,7 @@ export default function CustomerPortal() {
         description: "Chargeback Responder demo purchase",
       });
       await verifyPayment(apiToken, order.order_id, rzpResponse);
-      setMessage({ tone: "ok", text: `Payment confirmed for order ${order.order_id}.` });
+      setMessage({ tone: "ok", text: `Payment confirmed for order ${order.order_id} (${productColor}).` });
       refreshOrders();
     } catch (err) {
       setMessage({ tone: "danger", text: err instanceof ApiError ? err.message : err.message || "Purchase failed." });
@@ -160,6 +163,12 @@ export default function CustomerPortal() {
                   <label>Amount (INR)</label>
                   <input value={amount} onChange={(e) => setAmount(e.target.value)} />
                 </div>
+                <div className="field">
+                  <label>Product color</label>
+                  <select value={productColor} onChange={(e) => setProductColor(e.target.value)}>
+                    {PRODUCT_COLORS.map((color) => <option key={color} value={color}>{color}</option>)}
+                  </select>
+                </div>
               </div>
               <button className="btn btn--approve" disabled={busy} onClick={handleBuy}>
                 Buy &amp; pay with Razorpay
@@ -178,6 +187,7 @@ export default function CustomerPortal() {
                   <div className="order-row" key={o.order_id}>
                     <span className="order-row__id">{o.order_id}</span>
                     <span>{(o.amount / 100).toFixed(2)} {o.currency}</span>
+                    {o.product_color ? <span>{o.product_color}</span> : null}
                     <span className={`badge badge--${o.claim_status === "approve_refund" ? "ok" : o.claim_status === "reject_claim" ? "danger" : o.claim_status ? "warn" : o.status === "paid" ? "ok" : "neutral"}`}>
                       {o.claim_status === "approve_refund" ? "refund sent to bank" : o.claim_status === "reject_claim" ? "claim denied" : o.claim_status ? o.claim_status.replaceAll("_", " ") : o.status}
                     </span>

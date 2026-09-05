@@ -71,6 +71,8 @@ You are given up to two images:
 1. "customer_evidence" — the photo the customer submitted to support their dispute claim.
 2. "merchant_reference" — the merchant's canonical/reference photo of the product that was actually shipped (from the product catalog or delivery-confirmation photo). This may be missing.
 
+The order record may also provide an `ordered_product_color`. When it is present and the claim concerns an item not as described, assess whether the product visible in customer_evidence appears consistent with that exact ordered color. Account for lighting and camera white balance; do not call a mismatch unless the color difference is reasonably observable. This order-time field is an important comparison target even if a merchant_reference image is unavailable.
+
 Do three things:
 1. Compare the images and judge whether the customer's evidence photo actually supports their claim (e.g. for a "wrong color" claim, does the item in the customer's photo differ in color from the merchant's reference photo?).
 2. Independently assess whether the customer_evidence image shows signs of being AI-generated or digitally manipulated (unnatural textures, inconsistent lighting/shadows, warped text or logos, implausible reflections, generative-model artifact patterns, mismatched resolution/compression signatures, etc).
@@ -120,6 +122,7 @@ def analyze_evidence_images(
     claim_details: str = "",
     customer_image_data: bytes | None = None,
     customer_image_mime_type: str | None = None,
+    ordered_product_color: str | None = None,
 ) -> dict:
     """
     Compares a customer-submitted evidence photo against a merchant reference
@@ -162,7 +165,14 @@ def analyze_evidence_images(
             logger.warning(f"Vision analysis: failed to download merchant reference image: {exc}")
 
     prompt = _ANALYSIS_PROMPT_TEMPLATE.format(
-        claim_data=json.dumps({"reason_code": reason_code, "claim_details": claim_details or ""}, ensure_ascii=False),
+        claim_data=json.dumps(
+            {
+                "reason_code": reason_code,
+                "claim_details": claim_details or "",
+                "ordered_product_color": ordered_product_color or None,
+            },
+            ensure_ascii=False,
+        ),
         threshold=HUMAN_REVIEW_CONFIDENCE_THRESHOLD,
     )
 
@@ -172,7 +182,8 @@ def analyze_evidence_images(
     else:
         parts.append(
             "(No merchant reference image could be retrieved — base your AI-generation "
-            "screen on the customer image alone, and set claim_supported to \"uncertain\" "
+            "screen on the customer image alone. If ordered_product_color is present, compare "
+            "the visible item to that color; otherwise set claim_supported to \"uncertain\" "
             "unless the claim is verifiable without a reference.)"
         )
 

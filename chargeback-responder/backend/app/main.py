@@ -228,11 +228,23 @@ def manual_review(dispute_id: str, req: ReviewAction, db: Session = Depends(get_
         if req.action == "reject":
             dispute.status = "manually_not_contested"
         else:
+            evidence_text = (
+                f"Evidence summary: {submission_result.get('evidence_summary', '')}\n\n"
+                f"Reasoning: {merchant_message or submission_result.get('reasoning', '')}"
+            ).strip()
+            upload = razorpay_client.upload_evidence_document(
+                file_bytes=evidence_text.encode("utf-8"),
+                filename=f"{dispute_id}_manual_evidence.txt",
+            )
+            if not upload.get("uploaded"):
+                logger.warning(f"Evidence document upload failed for {dispute_id}: {upload.get('detail')}")
             submission = razorpay_client.contest_dispute(
                 dispute_id=dispute_id,
                 evidence_summary=submission_result.get("evidence_summary", ""),
                 reasoning=merchant_message or submission_result.get("reasoning", ""),
+                document_ids=[upload["document_id"]] if upload.get("uploaded") else None,
             )
+            submission["evidence_upload"] = upload
             submission_result["razorpay_submission"] = submission
             dispute.status = "manually_contested" if submission.get("submitted") else "action_failed"
 
@@ -360,11 +372,23 @@ def run_agent_and_update_db(
             dispute.status = result_json.get("action", "flag_for_review")
 
             if dispute.status == "auto_submit":
+                evidence_text = (
+                    f"Evidence summary: {result_json.get('evidence_summary', '')}\n\n"
+                    f"Reasoning: {result_json.get('reasoning', '')}"
+                ).strip()
+                upload = razorpay_client.upload_evidence_document(
+                    file_bytes=evidence_text.encode("utf-8"),
+                    filename=f"{dispute_id}_evidence.txt",
+                )
+                if not upload.get("uploaded"):
+                    logger.warning(f"Evidence document upload failed for {dispute_id}: {upload.get('detail')}")
                 submission = razorpay_client.contest_dispute(
                     dispute_id=dispute_id,
                     evidence_summary=result_json.get("evidence_summary", ""),
                     reasoning=result_json.get("reasoning", ""),
+                    document_ids=[upload["document_id"]] if upload.get("uploaded") else None,
                 )
+                submission["evidence_upload"] = upload
                 result_json["razorpay_submission"] = submission
                 if not submission.get("submitted"):
                     dispute.status = "flag_for_review"
@@ -402,6 +426,7 @@ class SignupRequest(BaseModel):
 class CreateOrderRequest(BaseModel):
     amount: int = Field(gt=0, description="Amount in the smallest currency unit, e.g. paise for INR")
     currency: str = "INR"
+    product_color: Optional[str] = Field(default=None, min_length=1, max_length=80)
     receipt: Optional[str] = None
 
 
@@ -451,7 +476,7 @@ def create_order_endpoint(
         amount_paise=req.amount,
         currency=req.currency,
         receipt=req.receipt,
-        notes={"user_id": current_user.id},
+        notes={"user_id": current_user.id, **({"product_color": req.product_color} if req.product_color else {})},
     )
     if not result.get("created"):
         raise HTTPException(status_code=502, detail=f"Could not create Razorpay order: {result.get('detail')}")
@@ -462,6 +487,7 @@ def create_order_endpoint(
         user_id=current_user.id,
         amount=req.amount,
         currency=req.currency,
+        product_color=req.product_color,
         receipt=req.receipt,
         status="created",
     )
@@ -473,6 +499,7 @@ def create_order_endpoint(
         "order_id": rp_order["id"],
         "amount": req.amount,
         "currency": req.currency,
+        "product_color": order.product_color,
         # Razorpay's key_id is the public half of the credential pair and is
         # meant to be used client-side by Checkout - safe to return here.
         # RAZORPAY_KEY_SECRET is never sent to the client.
@@ -492,6 +519,7 @@ def list_my_orders(current_user: User = Depends(get_current_user), db: Session =
             "order_id": o.id,
             "amount": o.amount,
             "currency": o.currency,
+            "product_color": o.product_color,
             "status": o.status,
             "razorpay_payment_id": o.razorpay_payment_id,
             "created_at": o.created_at.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z") if o.created_at else None,
@@ -647,6 +675,7 @@ def file_refund_claim(
         current_user.id,
         order.id,
         req.claim_details,
+        order.product_color,
         evidence_bytes,
         evidence_mime,
         order.razorpay_payment_id,
@@ -663,6 +692,7 @@ def run_refund_claim_and_update_db(
     customer_id: str,
     order_id: str,
     claim_details: str,
+    ordered_product_color: str | None,
     evidence_image_bytes,
     evidence_image_mime,
     payment_id,
@@ -694,7 +724,8 @@ def run_refund_claim_and_update_db(
             else:
                 result_json = process_refund_claim(
                     dispute_id, reason_code, customer_id, order_id=order_id,
-                    claim_details=claim_details, customer_image_data=evidence_image_bytes,
+                    claim_details=claim_details, ordered_product_color=ordered_product_color,
+                    customer_image_data=evidence_image_bytes,
                     customer_image_mime_type=evidence_image_mime,
                 )
         except Exception as exc:

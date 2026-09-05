@@ -138,10 +138,10 @@ class _FakeResponse:
         return self._json_body
 
 
-def test_contest_dispute_explanation_is_truncated_to_1000_chars(monkeypatch):
-    # The real /contest endpoint caps 'explanation' at 1000 chars - assert
-    # the actual payload the client builds respects that, by intercepting
-    # the outgoing call instead of letting anything reach the network.
+def test_contest_dispute_summary_is_truncated_to_1000_chars(monkeypatch):
+    # The real /contest endpoint caps 'summary' at 1000 chars - assert the
+    # actual payload the client builds respects that, by intercepting the
+    # outgoing call instead of letting anything reach the network.
     monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_ID", "rzp_test_fake")
     monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_SECRET", "fake_secret")
 
@@ -154,11 +154,112 @@ def test_contest_dispute_explanation_is_truncated_to_1000_chars(monkeypatch):
 
     monkeypatch.setattr(razorpay_client.httpx, "patch", fake_patch)
 
-    result = razorpay_client.contest_dispute("disp_123", "s" * 900, "r" * 900)
+    result = razorpay_client.contest_dispute("disp_123", "s" * 1200, "reasoning text is not sent as its own field")
 
     assert result["submitted"] is True
     assert "disp_123" in captured["url"]
-    assert len(captured["payload"]["explanation"]) == 1000
+    assert len(captured["payload"]["summary"]) == 1000
+    # There is no "explanation" field on Razorpay's real /contest schema -
+    # an earlier version of this client sent one and Razorpay would have
+    # silently ignored it. Guard against that regression coming back.
+    assert "explanation" not in captured["payload"]
+
+
+def test_contest_dispute_always_submits_not_drafts(monkeypatch):
+    # Razorpay defaults to "draft" (which explicitly does NOT submit the
+    # dispute) when 'action' is omitted - this must never be left out.
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_SECRET", "fake_secret")
+
+    captured = {}
+
+    def fake_patch(url, json, auth, timeout):
+        captured["payload"] = json
+        return _FakeResponse(200, {"id": "disp_1"}, text="{}")
+
+    monkeypatch.setattr(razorpay_client.httpx, "patch", fake_patch)
+
+    razorpay_client.contest_dispute("disp_123", "summary", "reasoning")
+
+    assert captured["payload"]["action"] == "submit"
+
+
+def test_contest_dispute_attaches_document_ids_as_proof_of_service(monkeypatch):
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_SECRET", "fake_secret")
+
+    captured = {}
+
+    def fake_patch(url, json, auth, timeout):
+        captured["payload"] = json
+        return _FakeResponse(200, {"id": "disp_1"}, text="{}")
+
+    monkeypatch.setattr(razorpay_client.httpx, "patch", fake_patch)
+
+    razorpay_client.contest_dispute("disp_123", "summary", "reasoning", document_ids=["doc_abc", "doc_def"])
+
+    assert captured["payload"]["proof_of_service"] == ["doc_abc", "doc_def"]
+
+
+def test_contest_dispute_without_document_ids_omits_proof_of_service(monkeypatch):
+    # No fabricated document ID - Razorpay will predictably reject a submit
+    # with zero documents, and that's the correct, honest outcome rather
+    # than something this client should paper over.
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_SECRET", "fake_secret")
+
+    captured = {}
+
+    def fake_patch(url, json, auth, timeout):
+        captured["payload"] = json
+        return _FakeResponse(200, {"id": "disp_1"}, text="{}")
+
+    monkeypatch.setattr(razorpay_client.httpx, "patch", fake_patch)
+
+    razorpay_client.contest_dispute("disp_123", "summary", "reasoning")
+
+    assert "proof_of_service" not in captured["payload"]
+
+
+def test_upload_evidence_document_without_keys_fails_soft_no_network(monkeypatch):
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_ID", None)
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_SECRET", None)
+
+    result = razorpay_client.upload_evidence_document(b"some evidence text", "evidence.txt")
+
+    assert result == {"uploaded": False, "document_id": None, "detail": "RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET not configured."}
+
+
+def test_upload_evidence_document_success_returns_document_id(monkeypatch):
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_SECRET", "fake_secret")
+
+    def fake_post(url, files, data, auth, timeout):
+        assert data == {"purpose": "dispute_evidence"}
+        assert "file" in files
+        return _FakeResponse(200, {"id": "doc_EFtmUsbwpXwBH9"})
+
+    monkeypatch.setattr(razorpay_client.httpx, "post", fake_post)
+
+    result = razorpay_client.upload_evidence_document(b"evidence narrative", "dispute_evidence.txt")
+
+    assert result == {"uploaded": True, "document_id": "doc_EFtmUsbwpXwBH9", "detail": ""}
+
+
+def test_upload_evidence_document_surfaces_non_2xx_as_not_uploaded(monkeypatch):
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setattr(razorpay_client, "RAZORPAY_KEY_SECRET", "fake_secret")
+
+    def fake_post(url, files, data, auth, timeout):
+        return _FakeResponse(400, text='{"error": {"description": "unsupported file type"}}')
+
+    monkeypatch.setattr(razorpay_client.httpx, "post", fake_post)
+
+    result = razorpay_client.upload_evidence_document(b"evidence narrative", "dispute_evidence.exe")
+
+    assert result["uploaded"] is False
+    assert result["document_id"] is None
+    assert "400" in result["detail"]
 
 
 def test_create_order_omits_receipt_and_notes_when_not_given(monkeypatch):

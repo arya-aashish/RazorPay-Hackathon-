@@ -200,23 +200,63 @@ def fetch_order_payments(order_id: str) -> dict:
         return {"fetched": False, "payments": [], "detail": f"Request failed: {exc}"}
 
 
-def contest_dispute(dispute_id: str, evidence_summary: str, reasoning: str) -> dict:
+def upload_evidence_document(file_bytes: bytes, filename: str, mime_type: str = "text/plain") -> dict:
+    """
+    Uploads a document via Razorpay's Documents API (POST /v1/documents,
+    multipart/form-data, purpose=dispute_evidence). Returns
+    {"uploaded": bool, "document_id": str|None, "detail": str}.
+
+    This exists because contest_dispute()'s evidence fields (summary aside)
+    are all lists of document IDs, not free text - Razorpay requires at
+    least one real document ID for a contest submission to actually count
+    as submitted rather than silently sitting as an unsubmitted draft.
+    """
+    if not _configured():
+        return {"uploaded": False, "document_id": None, "detail": "RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET not configured."}
+
+    @_RETRY_DECORATOR
+    def _do_request():
+        files = {"file": (filename, file_bytes, mime_type)}
+        data = {"purpose": "dispute_evidence"}
+        response = httpx.post(f"{RAZORPAY_BASE_URL}/documents", files=files, data=data, auth=_auth(), timeout=20.0)
+        _raise_if_retryable(response)
+        return response
+
+    try:
+        response = _do_request()
+        if response.status_code in (200, 201):
+            document_id = response.json().get("id")
+            return {"uploaded": True, "document_id": document_id, "detail": ""}
+        logger.warning(f"Razorpay document upload failed: {response.status_code} {response.text[:300]}")
+        return {"uploaded": False, "document_id": None, "detail": f"{response.status_code}: {response.text[:300]}"}
+    except Exception as exc:
+        logger.exception(f"Razorpay document upload crashed (after retries): {exc}")
+        return {"uploaded": False, "document_id": None, "detail": f"Request failed: {exc}"}
+
+
+def contest_dispute(dispute_id: str, evidence_summary: str, reasoning: str, document_ids: list = None) -> dict:
     """
     Submits evidence and contests a dispute via Razorpay's Test Mode Disputes
     API. This is what executes an "auto_submit" decision from
     agent_pipeline.process_dispute() (bank-initiated chargeback flow).
 
+    Confirmed against Razorpay's actual /contest schema: there is no
+    "explanation" field (an earlier version of this function sent one -
+    Razorpay would have silently ignored it). Every evidence slot besides
+    `summary`/`amount` is a list of document IDs, and `action` must be
+    "submit" - omitting it defaults to "draft", which Razorpay explicitly
+    documents as NOT submitting the dispute at all. Callers should upload
+    evidence via upload_evidence_document() first and pass the resulting
+    ID(s) here; Razorpay requires at least one document ID for a submit to
+    be accepted, so calling this with document_ids=None will predictably be
+    rejected - which is the correct, honest outcome (surfaced through the
+    existing failed-submission -> flag_for_review path) rather than
+    something to paper over with a fabricated document ID.
+
     Returns {"submitted": bool, "detail": str, "status_code": int|None}.
     Never raises - a failed submission should be visible in the dispute's
     stored result and surfaced for a human to retry/handle manually, not
     crash the background task.
-
-    NOTE: the exact evidence payload schema (which fields Razorpay's
-    /contest endpoint expects) should be double-checked against Razorpay's
-    current dispute-evidence API docs before the real demo run - this uses
-    a reasonable minimal shape (a single text summary field) that is safe
-    to submit in Test Mode but may need adjusting to match their schema
-    exactly for a real submission to be accepted.
     """
     if not _configured():
         logger.warning("Razorpay submission skipped: RAZORPAY_KEY_ID/SECRET not configured.")
@@ -227,17 +267,14 @@ def contest_dispute(dispute_id: str, evidence_summary: str, reasoning: str) -> d
         }
 
     url = f"{RAZORPAY_BASE_URL}/disputes/{dispute_id}/contest"
-    # Razorpay's real /contest schema uses "explanation" (max 1000 chars),
-    # not "reasoning" - folding both text fields into it here since we don't
-    # yet upload real evidence documents via their Documents API (shipping_
-    # proof/billing_proof/etc take document IDs, not free text).
-    explanation = f"{evidence_summary} {reasoning}".strip()[:1000]
-    payload = {
-        "amount": None,  # set to the disputed amount if known; Razorpay allows omitting for full amount
-        "summary": evidence_summary[:1000] if evidence_summary else None,
-        "explanation": explanation or None,
-    }
-    payload = {k: v for k, v in payload.items() if v is not None}
+    payload = {"action": "submit"}
+    if evidence_summary:
+        payload["summary"] = evidence_summary[:1000]
+    if document_ids:
+        # proof_of_service: "documentation that proves goods/services were
+        # delivered as described" - the closest real evidence field to what
+        # our evidence_summary narrative actually documents.
+        payload["proof_of_service"] = list(document_ids)[:10]
 
     @_RETRY_DECORATOR
     def _do_request():

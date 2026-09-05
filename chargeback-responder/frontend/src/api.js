@@ -59,11 +59,11 @@ export function signup(email, name) {
   return request("/auth/signup", { method: "POST", body: { email, name } });
 }
 
-export function createOrder(apiToken, amount, currency = "INR") {
+export function createOrder(apiToken, amount, currency = "INR", productColor = null) {
   return request("/orders", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiToken}` },
-    body: { amount, currency },
+    body: { amount, currency, product_color: productColor || null },
   });
 }
 
